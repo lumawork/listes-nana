@@ -1,0 +1,14 @@
+{
+  "name": "mes-missions",
+  "version": "11.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node tests/database.cjs && node tests/dynamic-core.cjs && node tests/migration.cjs && node tests/legacy-client.cjs && node --test tests/*.test.cjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.14"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

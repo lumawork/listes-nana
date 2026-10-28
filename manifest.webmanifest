@@ -1,1 +1,31 @@
-{"name":"Mes missions","short_name":"Mes missions","lang":"fr","start_url":"./","scope":"./","display":"standalone","background_color":"#fcf7fa","theme_color":"#f7e8ef","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
+{
+  "name": "Mes missions",
+  "short_name": "Mes missions",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fcf7fa",
+  "theme_color": "#f7e8ef",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "id": "./"
+}
