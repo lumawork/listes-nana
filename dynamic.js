@@ -472,6 +472,9 @@
         }),
       );
     root.append(controls);
+    if (managing && canManage()) drawDefinitions();
+    const reminded = managing ? [] : reminderRows();
+    if (reminded.length) drawReminders(reminded);
     if(managing && snapshot.upgradeReport?.length){
       const report=el("details");report.append(el("summary",null,"Mes listes ont été récupérées — voir le bilan"));
       for(const row of snapshot.upgradeReport)report.append(el("p","small",row.list+" · "+({imported:"mission avec étapes",unscheduled:"conservée sans date",preserved:"calendrier existant conservé"}[row.status]||row.status)));
@@ -509,7 +512,7 @@
     }
     root.append(daily);
     const rows = C.visible(snapshot.occurrences, now()).filter(
-      (o) => selectedPerson === "all" || o.person === selectedPerson,
+      (o) => (selectedPerson === "all" || o.person === selectedPerson) && !reminded.includes(o),
     );
     const groups = new Map();
     for (const o of rows) {
@@ -519,7 +522,7 @@
         groups.set(key, { person: o.person, look: appearance(o), rows: [] });
       groups.get(key).rows.push(o);
     }
-    if (!rows.length) {
+    if (!rows.length && !reminded.length) {
       const box = el("section", "empty");
       box.append(
         el("div", "icon", "☀"),
@@ -631,87 +634,157 @@
           );
           last = bucket;
         }
-        const row = el("div", "dynamic-task");
-        const hasSteps=!!o.spec.steps?.length;
-        const button = btn(hasSteps ? "Ouvrir" : "✓", () => hasSteps ? checklist(o) : act("complete", o), "dynamic-check");
-        button.setAttribute("aria-label", (hasSteps ? "Ouvrir les étapes de " : "Valider ") + o.title);
-        button.disabled = pending || !navigator.onLine;
-        const text = el("div", "dynamic-task-copy");
-        text.append(
-          el("strong", null, o.title),
-          ...(hasSteps ? [el("span","small",o.spec.steps.filter(s=>o.spec.stepDone?.[s.id]).length+" / "+o.spec.steps.length+" étapes")] : []),
-          el(
-            "span",
-            "small",
-            C.local(o.due) +
-              (o.spec.mode === "relative" ? " · après validation" : ""),
-          ),
-        );
-        if (o.due !== o.original_due)
-          text.append(
-            el(
-              "span",
-              "small",
-              "Reportée · référence initiale : " + C.local(o.original_due),
-            ),
-          );
-        const more = btn("•••", () => occurrence(o), "dynamic-more");
-        more.setAttribute("aria-label", "Actions pour " + o.title);
-        row.append(button, text, more);
-        taskHost.append(row);
+        taskHost.append(taskRow(o));
       }
       if (managing && look.note) card.append(el("p", "note", look.note));
       cards.append(card);
     }
     if(!managing)root.append(cards);
-    if (managing && canManage()) {
-      const area = el("details", "dynamic-routines"),
-        summary = el("summary", null, "Mes missions, y compris sans date");
-      area.append(summary);area.open=true;
-      for (const d of snapshot.definitions.filter(
-        (d) =>
-          !d.archived &&
-          (selectedPerson === "all" || d.person === selectedPerson),
-      )) {
-        const line = el("div", "dynamic-definition");
-        line.append(
-          el("strong", null, d.title),
-          el(
-            "span",
-            "small",
-            d.spec.mode === "relative"
-              ? "Après la dernière validation · " +
-                  d.spec.every +
-                  " " +
-                  unitLabel(d.spec.unit)
-              : d.spec.mode === "once"
-                ? "Une seule fois"
-                : d.spec.mode === "none" ? "Sans date · conservée dans Gérer" : `Toutes les ${d.spec.every} ${unitLabel(d.spec.unit)}`,
-          ),
-          btn("Modifier", () => editTask(d)),
-          ...(d.spec.mode !== "none" ? [btn(d.spec.paused ? "Reprendre" : "Pause", () =>
-            mutate("edit", {id:d.id,version:d.version,spec:{paused:!d.spec.paused}}).catch(()=>{}))] : []),
-          btn("Archiver", () => {
-            if (
-              confirm(
-                "Archiver cette routine ? Les réalisations et retards sont conservés.",
-              )
-            )
-              mutate("archive", { id: d.id, version: d.version }).catch(
-                () => {},
-              );
-          }),
-        );
-        area.append(line);
-      }
-      root.append(area);
-    }
     const note = el(
       "p",
       "foot",
       "Une chose à la fois. Les missions sans date et leur détail restent dans Gérer.",
     );
     root.append(note);
+  }
+  // Missions with a reminder are gathered at the top of Aujourd’hui, from the start of their day.
+  function reminderRows() {
+    const today = C.day(new Date(now()));
+    return snapshot.occurrences
+      .filter(
+        (o) =>
+          o.status === "open" &&
+          !o.spec.paused &&
+          o.spec.reminder &&
+          (selectedPerson === "all" || o.person === selectedPerson) &&
+          (Date.parse(o.visible) <= now() ||
+            Date.parse(o.ends) <= now() ||
+            C.day(o.due) <= today),
+      )
+      .sort((a, b) => Date.parse(a.due) - Date.parse(b.due) || a.id.localeCompare(b.id));
+  }
+  function drawReminders(list) {
+    const card = el("section", "card dynamic-card dynamic-reminders");
+    card.append(el("h2", null, "🔔 Mes missions"));
+    for (const o of list) card.append(taskRow(o, true));
+    root.append(card);
+  }
+  function opened(o) {
+    return Date.parse(o.visible) <= now() || Date.parse(o.ends) <= now();
+  }
+  function taskRow(o, inlineSteps = false) {
+    const row = el("div", "dynamic-task");
+    const hasSteps=!!o.spec.steps?.length;
+    const button = btn(hasSteps ? "Ouvrir" : "✓", () => hasSteps ? checklist(o) : act("complete", o), "dynamic-check");
+    button.setAttribute("aria-label", (hasSteps ? "Ouvrir les étapes de " : "Valider ") + o.title);
+    button.disabled = pending || !navigator.onLine;
+    const text = el("div", "dynamic-task-copy");
+    text.append(
+      el("strong", null, o.title),
+      ...(hasSteps ? [el("span","small",o.spec.steps.filter(s=>o.spec.stepDone?.[s.id]).length+" / "+o.spec.steps.length+" étapes")] : []),
+      el(
+        "span",
+        "small",
+        C.dueLabel(o) +
+          (o.spec.mode === "relative" ? " · après validation" : ""),
+      ),
+    );
+    if (o.due !== o.original_due)
+      text.append(
+        el(
+          "span",
+          "small",
+          "Reportée · référence initiale : " + C.local(o.original_due),
+        ),
+      );
+    const more = btn("•••", () => occurrence(o), "dynamic-more");
+    more.setAttribute("aria-label", "Actions pour " + o.title);
+    row.append(button, text, more);
+    if (!opened(o)) {
+      button.disabled = true;
+      text.append(el("span", "small", "Ouverte à partir de " + C.local(o.visible)));
+    }
+    if (!inlineSteps || !hasSteps) return row;
+    const wrap = el("div", "dynamic-task-wrap");
+    wrap.append(row, stepDetails(o));
+    return wrap;
+  }
+  const openSteps = new Set();
+  function stepDetails(o) {
+    const steps = o.spec.steps || [],
+      done = o.spec.stepDone || {},
+      box = el("details", "dynamic-steps");
+    box.open = openSteps.has(o.id);
+    box.ontoggle = () => (box.open ? openSteps.add(o.id) : openSteps.delete(o.id));
+    box.append(el("summary", null, "Voir les étapes"));
+    for (const step of steps) {
+      const label = el("label", "task"),
+        input = el("input");
+      input.type = "checkbox";
+      input.checked = !!done[step.id];
+      input.disabled = pending || !navigator.onLine || !opened(o);
+      label.append(input, el("span", "text", (step.time ? step.time.replace(":", " h ") + " · " : "") + step.title));
+      input.onchange = async () => {
+        input.disabled = true;
+        try {
+          await mutate("step", { id: o.id, version: o.version, stepId: step.id, done: input.checked });
+        } catch {
+          await refresh(true);
+        }
+      };
+      box.append(label);
+    }
+    return box;
+  }
+  function drawDefinitions() {
+    const area = el("details", "dynamic-routines"),
+      summary = el("summary", null, "Mes missions, y compris sans date");
+    area.append(summary);area.open=true;
+    for (const d of snapshot.definitions.filter(
+      (d) =>
+        !d.archived &&
+        (selectedPerson === "all" || d.person === selectedPerson),
+    ).sort((a, b) => Number(!!b.spec.reminder) - Number(!!a.spec.reminder))) {
+      const line = el("div", "dynamic-definition");
+      line.append(
+        el("strong", null, d.title),
+        el(
+          "span",
+          "small",
+          d.spec.mode === "relative"
+            ? "Après la dernière validation · " +
+                d.spec.every +
+                " " +
+                unitLabel(d.spec.unit)
+            : d.spec.mode === "once"
+              ? "Une seule fois"
+              : d.spec.mode === "none" ? "Sans date · conservée dans Gérer" : `Toutes les ${d.spec.every} ${unitLabel(d.spec.unit)}`,
+          ...(d.spec.reminder ? [" · 🔔 " + (MissionWizard.initialTime(d.spec) || "à l’échéance")] : []),
+        ),
+        btn("Modifier", () => editTask(d)),
+        ...(d.spec.mode !== "none" ? [btn(d.spec.paused ? "Reprendre" : "Pause", () =>
+          mutate("edit", {id:d.id,version:d.version,spec:{paused:!d.spec.paused}}).catch(()=>{}))] : []),
+        btn("Archiver", () => {
+          if (
+            confirm(
+              "Archiver cette routine ? Les réalisations et retards sont conservés.",
+            )
+          )
+            mutate("archive", { id: d.id, version: d.version }).catch(
+              () => {},
+            );
+        }),
+      );
+      if (d.spec.steps?.length) {
+        const steps = el("details", "dynamic-steps");
+        steps.append(el("summary", null, d.spec.steps.length + " étapes"));
+        for (const step of d.spec.steps)
+          steps.append(el("p", "small", (step.time ? step.time.replace(":", " h ") + " · " : "") + step.title));
+        line.append(steps);
+      }
+      area.append(line);
+    }
+    root.append(area);
   }
   function enableSound() {
     try {
@@ -807,7 +880,7 @@
   function occurrence(o) {
     const d = dialog(o.title);
     d.append(
-      el("p", "small", C.local(o.due)),
+      el("p", "small", C.dueLabel(o)),
       btn("✓ C’est fait", () => act("complete", o), "primary"),
     );
     if (snapshot.admin) {
@@ -882,14 +955,14 @@
     const mode=select(f,'Quand ?',[['none','Sans date'],['once','Une fois'],['fixed','Certains jours'],['relative','Après chaque réalisation']],current.mode||'once');
     const calendar=el('section','wizard-calendar');f.append(calendar);
     const date=labelInput(calendar,'Date / à partir du','date',(current.firstDue||C.day()).slice(0,10),true);
-    const time=labelInput(calendar,'Heure, si nécessaire','time',current.dueType==='day'?'':(current.firstDue||'').slice(11,16));
+    const time=labelInput(calendar,'Heure, si nécessaire','time',MissionWizard.initialTime(current));
     const relative=el('div');calendar.append(relative);
     const every=labelInput(relative,'Tous les','number',current.every||7,true);every.min='1';every.max='365';
     const unit=select(relative,'Intervalle',[['days','jours'],['weeks','semaines'],['hours','heures'],['minutes','minutes']],current.unit||'days');
     const dayBox=el('fieldset');dayBox.append(el('legend',null,'Quels jours ?'));calendar.append(dayBox);
     const days=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'].map((t,i)=>check(dayBox,t,!current.days||current.days.includes(i)));
     const reminders=el('section');f.append(reminders);
-    const rem=check(reminders,'Me rappeler cette mission',!!current.reminder),remTime=labelInput(reminders,'À quelle heure ?','time',current.reminderTime||'');
+    const rem=check(reminders,'Me rappeler cette mission à son heure',!!current.reminder);
     const detail=el('details','wizard-steps');detail.append(el('summary',null,'Ajouter des étapes (facultatif)'));const stepLabel=el('label',null,'Une étape par ligne. Une heure peut précéder le texte : 15:00 Préparer le sac.');const stepText=el('textarea');stepText.rows=5;stepText.value=(current.steps||[]).map(s=>(s.time?s.time+' ':'')+s.title).join('\n');stepLabel.append(stepText);detail.append(stepLabel);detail.open=!!current.steps?.length;f.append(detail);
     const advanced=el('details');advanced.append(el('summary',null,'Plus d’options'));f.append(advanced);
     const collection=labelInput(advanced,'Groupe de missions','text',look.title||'Maison',true),icon=labelInput(advanced,'Symbole','text',look.icon||'🌿');
@@ -898,11 +971,11 @@
     const visualTheme=select(advanced,'Thème de cette mission',[['inherit','Suivre mon thème'],['original','Style initial'],...MissionThemes.map(t=>[t.id,t.name])],look.visualTheme||'inherit');
     const delay=select(advanced,'Espacement des relances',[[5,'5 min'],[10,'10 min'],[15,'15 min'],[30,'30 min'],[60,'1 h']],current.reminderDelay||15);
     const repeats=select(advanced,'Relances supplémentaires',[[0,'Aucune'],[1,'Une'],[2,'Deux'],[3,'Trois']],current.reminderCount??0);
-    const update=()=>{calendar.hidden=mode.value==='none';date.required=mode.value!=='none';relative.hidden=mode.value!=='relative';every.required=mode.value==='relative';dayBox.hidden=mode.value!=='fixed';reminders.hidden=mode.value==='none';remTime.parentElement.hidden=!rem.checked;periodStart.parentElement.hidden=!period.value;periodEnd.parentElement.hidden=!period.value;};mode.onchange=update;rem.onchange=update;period.onchange=update;update();
+    const update=()=>{calendar.hidden=mode.value==='none';date.required=mode.value!=='none';relative.hidden=mode.value!=='relative';every.required=mode.value==='relative';dayBox.hidden=mode.value!=='fixed';reminders.hidden=mode.value==='none';time.required=mode.value!=='none'&&rem.checked;periodStart.parentElement.hidden=!period.value;periodEnd.parentElement.hidden=!period.value;};mode.onchange=update;rem.onchange=update;period.onchange=update;update();
     const status=el('p','small');status.setAttribute('role','status');const submit=el('button','primary',def?'Enregistrer':'Ajouter');submit.type='submit';f.append(status,submit);
     f.onsubmit=async e=>{e.preventDefault();submit.disabled=true;try{
       const existing=snapshot.definitions.find(x=>x.spec?.ui?.title===collection.value.trim()&&x.person===person.value);
-      const data=MissionWizard.build({title:title.value,person:person.value,mode:mode.value,date:date.value,time:time.value,every:mode.value==='relative'?Number(every.value):mode.value==='fixed'?Number(current.every||1):1,unit:mode.value==='relative'?unit.value:mode.value==='fixed'?(current.unit||'days'):'days',days:days.flatMap((x,i)=>x.checked?[i]:[]),reminder:rem.checked,reminderTime:remTime.value,reminderDelay:delay.value,reminderCount:repeats.value,steps:stepText.value,groupTitle:collection.value.trim(),groupId:existing?.spec.ui.listId||look.id||('group:'+collection.value.trim()),icon:icon.value,visualTheme:visualTheme.value,period:period.value,periodStart:periodStart.value,periodEnd:periodEnd.value},def);
+      const data=MissionWizard.build({title:title.value,person:person.value,mode:mode.value,date:date.value,time:time.value,every:mode.value==='relative'?Number(every.value):mode.value==='fixed'?Number(current.every||1):1,unit:mode.value==='relative'?unit.value:mode.value==='fixed'?(current.unit||'days'):'days',days:days.flatMap((x,i)=>x.checked?[i]:[]),reminder:rem.checked,reminderDelay:delay.value,reminderCount:repeats.value,steps:stepText.value,groupTitle:collection.value.trim(),groupId:existing?.spec.ui.listId||look.id||('group:'+collection.value.trim()),icon:icon.value,visualTheme:visualTheme.value,period:period.value,periodStart:periodStart.value,periodEnd:periodEnd.value},def);
       if(data.spec.mode!=='none')C.validateTask(data);
       await mutate(def?'edit':'create',{...data,...(def?{id:def.id,version:def.version,replaceSchedule:data.replaceSchedule}:{})});d.close();
     }catch(e){status.textContent=problem(e);}finally{submit.disabled=false;}};
@@ -1399,6 +1472,6 @@
     const original=$(id), button=original.cloneNode(false);button.textContent=label;original.replaceWith(button);button.onclick=handler;
   }
   $("settings").textContent="Apparence";
-  document.querySelector(".version").textContent="Version 12.0 · missions et étapes";
+  document.querySelector(".version").textContent="Version 12.1 · missions et étapes";
   toggle(true);
 })();

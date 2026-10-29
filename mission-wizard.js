@@ -15,9 +15,10 @@
   const title=String(values.title||'').trim();if(!title||title.length>500)throw Error('Indique le nom de la mission.');
   const mode=values.mode;if(!['none','once','fixed','relative'].includes(mode))throw Error('Choisis quand faire cette mission.');
   if(!['annabelle','papa','maman'].includes(values.person))throw Error('Choisis une personne.');
-  const spec={mode,every:Number(values.every||1),unit:values.unit||'days',steps:steps(values.steps||'',previous?.spec?.steps||[]),ui:{...(previous?.spec?.ui||{}),listId:values.groupId||'general',title:values.groupTitle||'Maison',icon:values.icon||'🌿',visualTheme:values.visualTheme||previous?.spec?.ui?.visualTheme||'inherit'},reminder:mode!=='none'&&!!values.reminder,reminderTime:values.reminderTime||'',reminderDelay:Number(values.reminderDelay||15),reminderCount:Number(values.reminderCount??0)};
+  const spec={mode,every:Number(values.every||1),unit:values.unit||'days',steps:steps(values.steps||'',previous?.spec?.steps||[]),ui:{...(previous?.spec?.ui||{}),listId:values.groupId||'general',title:values.groupTitle||'Maison',icon:values.icon||'🌿',visualTheme:values.visualTheme||previous?.spec?.ui?.visualTheme||'inherit'},reminder:mode!=='none'&&!!values.reminder,reminderTime:'',reminderDelay:Number(values.reminderDelay||15),reminderCount:Number(values.reminderCount??0)};
   if(mode!=='none'){
    if(!/^\d{4}-\d{2}-\d{2}$/.test(values.date||''))throw Error('Choisis une date.');
+   if(spec.reminder&&!values.time)throw Error('Indique l’heure de la mission : elle sert aussi d’heure de rappel.');
    spec.firstDue=values.date+'T'+(values.time||'00:00');spec.dueType=values.time?'time':'day';
    if(mode==='fixed'){spec.days=values.days;if(!spec.days?.length)throw Error('Choisis au moins un jour.');}
    if(!Number.isInteger(spec.every)||spec.every<1||spec.every>365)throw Error('Choisis un intervalle entre 1 et 365.');
@@ -26,5 +27,7 @@
   const normalize=s=>JSON.stringify({mode:s.mode,every:s.every||1,unit:s.unit||'days',firstDue:s.firstDue||'',period:s.period||'',periodStart:s.periodStart||'',periodEnd:s.periodEnd||'',days:s.mode==='fixed'?(s.days||[0,1,2,3,4,5,6]).slice().sort():[],dueType:s.dueType||'time'});
   return {person:values.person,title,spec,replaceSchedule:!!previous&&normalize(previous.spec)!==normalize(spec)};
  }
- const api={id,steps,build};if(typeof module==='object')module.exports=api;else root.MissionWizard=api;
+ // The task time is the reminder time; older whole-day missions kept a separate reminder hour.
+ function initialTime(spec={}){return spec.dueType==='day'?(spec.reminder&&spec.reminderTime)||'':(spec.firstDue||'').slice(11,16);}
+ const api={id,steps,build,initialTime};if(typeof module==='object')module.exports=api;else root.MissionWizard=api;
 })(typeof globalThis==='object'?globalThis:this);

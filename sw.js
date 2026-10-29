@@ -1,7 +1,7 @@
 "use strict";
 const PREFIX =
   "mes-missions-" + encodeURIComponent(self.registration.scope) + "-";
-const CACHE = PREFIX + "v12.0-static-1";
+const CACHE = PREFIX + "v12.1-static-1";
 const ASSETS = [
   "./",
   "./index.html",
