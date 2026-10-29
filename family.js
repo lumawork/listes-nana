@@ -644,14 +644,11 @@
     }
     const tabs = el("div", "family-actions");
     tabs.append(
-      btn("Mes missions", () => {
+      btn("Mon profil", () => {
         view = "personal";
         panel();
       }),
-      btn("Mes statistiques", () => {
-        view = "stats";
-        panel();
-      }),
+
     );
     if (remote.kind === "adult")
       tabs.append(
@@ -756,8 +753,10 @@
             ? "Synchronisation suspendue."
             : busy
               ? "Envoi en cours…"
-              : dirty
-                ? "Modifications à envoyer."
+              : !navigator.onLine
+                ? "Hors connexion · modifications en attente."
+                : dirty
+                ? "Envoi en attente…"
                 : remote.updated_at
                   ? "Synchronisé le " +
                     new Date(remote.updated_at).toLocaleString("fr-FR")
@@ -766,11 +765,9 @@
       );
       box.append(
         btn("Ouvrir mes missions", () => $("parentDialog").close(), "primary"),
-        btn("Synchroniser maintenant", () => {
-          queue();
-          run(flush);
-        }),
+
       );
+      if (errorText && !conflict) box.append(btn("Réessayer",()=>run(flush)));
       if (conflict)
         box.append(
           btn(
@@ -856,7 +853,10 @@
       box.append(pref);
       if (globalThis.MissionsReminders)
         MissionsReminders.panel(box, { call, child: true, ready });
-      box.append(
+      const advancedAccount=el("details");advancedAccount.append(el("summary",null,"Options du compte"));box.append(advancedAccount);
+      advancedAccount.append(
+        btn("Apparence",()=>$("settings").click()),
+        btn("Anciennes listes partagées",()=>{ $("parentDialog").close();MissionsDynamic.toggle(false);MissionsShared.toggle(true); }),
         btn("Changer mon mot de passe", () => {
           view = "password";
           panel();

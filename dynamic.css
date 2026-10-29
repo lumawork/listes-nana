@@ -280,3 +280,29 @@
     font-size: 1rem;
   }
 }
+
+/* Accueil quotidien : les thèmes restent présents, les grandes illustrations dans la gestion. */
+body.dynamic-view .hero { padding: 20px 16px 8px; min-height: 0; }
+body.dynamic-view #heroArt, body.dynamic-view .hero .deco { display: none; }
+body.dynamic-view .hero h1 { font-size: clamp(1.5rem,5vw,2.1rem); }
+.daily-dashboard .dynamic-cards { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.daily-dashboard .dynamic-card, .daily-legacy-card { padding: 18px; margin-bottom: 14px; }
+.daily-dashboard .cardhead h2 { font-size: 1.3rem; }
+.daily-dashboard .dynamic-controls { gap: 8px; }
+.daily-dashboard .dynamic-task { min-height: 64px; }
+.daily-dashboard .dynamic-bucket { margin-top: 14px; }
+.daily-administration { padding: 12px; border: 1px solid var(--line,#ddd); border-radius: 14px; }
+.daily-administration summary { cursor:pointer; font-weight:600; }
+.daily-administration button { margin:8px 4px; }
+.daily-management-intro { margin: 20px 0; }
+.daily-management-intro[hidden] { display:none; }
+.daily-legacy { margin-top:24px; }
+@media(min-width:900px){.daily-dashboard .dynamic-cards { grid-template-columns:repeat(2,minmax(0,1fr)); }}
+
+.daily-person-summary{display:flex;align-items:center;gap:14px;padding:14px;background:var(--soft,#f3f6ed);border-radius:18px;width:100%}.daily-avatar{display:block;flex:0 0 58px;width:58px;height:58px;border-radius:50%;background-position:center}.daily-person-summary p{margin:4px 0}.daily-message{font-weight:600}.daily-dashboard .dynamic-card .cardhead{margin-bottom:6px}.daily-dashboard .dynamic-card .cardhead h2{font-family:inherit}
+
+.wizard-calendar,.wizard-steps{margin:16px 0}.dynamic-area details summary{cursor:pointer;padding:10px 0}.dynamic-check{min-width:58px}.dynamic-area form details{padding:12px;margin:12px 0;border:1px solid var(--line,#ddd);border-radius:14px}
+
+header .header-actions #parents,header .header-actions #settings{display:none}.dynamic-area[hidden]{display:none}
+
+[hidden]{display:none!important}body.dynamic-view .hero{display:none}.missions-tabs{position:sticky;top:0;z-index:3;background:var(--paper,#fffaf3);padding:8px;border-radius:16px}.missions-tabs button{flex:1}.legacy-checklist summary{font-weight:600}

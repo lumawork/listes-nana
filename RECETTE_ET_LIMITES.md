@@ -1,3 +1,5 @@
+> Document historique de la version précédente. Pour cette livraison, lire CHANGEMENTS.md et ECRAN_FULLY.md.
+
 # Recette et limites — Notre Maison 1.2 / Mes Missions 11.1
 
 Livraison de code du 26 octobre 2026. Aucun déploiement, aucune modification de la base réelle et aucune reprise de liste familiale réalisés pendant cette livraison.

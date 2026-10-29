@@ -1,7 +1,7 @@
 "use strict";
 const PREFIX =
   "mes-missions-" + encodeURIComponent(self.registration.scope) + "-";
-const CACHE = PREFIX + "v11.1-static-1";
+const CACHE = PREFIX + "v12.0-static-1";
 const ASSETS = [
   "./",
   "./index.html",
@@ -21,6 +21,9 @@ const ASSETS = [
   "./app.js",
   "./dynamic-core.js",
   "./dynamic.js",
+  "./daily-core.js",
+  "./mission-wizard.js",
+  "./art/avatar-presets.png",
   "./dynamic.css",
   "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./icon.svg",

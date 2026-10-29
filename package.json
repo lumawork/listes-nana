@@ -1,12 +1,14 @@
 {
   "name": "mes-missions",
-  "version": "11.1.0",
+  "version": "12.0.0",
   "private": true,
   "scripts": {
-    "test": "node tests/database.cjs && node tests/dynamic-core.cjs && node tests/migration.cjs && node tests/legacy-client.cjs && node --test tests/*.test.cjs"
+    "test": "node tests/database.cjs && node tests/dynamic-core.cjs && node tests/migration.cjs && node tests/legacy-client.cjs && node tests/steps.cjs && node --test tests/*.test.cjs",
+    "test:ui": "node tests/ui.cjs"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.3.14"
+    "@electric-sql/pglite": "0.3.14",
+    "jsdom": "30.1.3"
   },
   "engines": {
     "node": ">=22"

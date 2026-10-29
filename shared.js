@@ -882,6 +882,7 @@
   globalThis.MissionsShared = {
     setContext,
     refresh,
+    toggle,
     repaint,
     sharePrivate,
     openList,

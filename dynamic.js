@@ -17,6 +17,9 @@
   const portalUrl = new URL(MISSIONS_CONFIG.maisonUrl, location.href).href;
 
   const messages = {
+    STEPS_INCOMPLETE: "Ouvre la mission et coche ses étapes pour la terminer.",
+    VERSION_CONFLICT: "Cette mission vient de changer sur un autre appareil. Le contenu est actualisé ; réessaie.",
+    PERSON_ALREADY_ASSIGNED: "Cette personne est déjà associée à un autre compte. Un parent peut vérifier l’association dans les réglages du foyer.",
     AUTH_REQUIRED: "Connecte-toi dans Mon compte pour retrouver tes missions.",
     SETUP_REQUIRED:
       "Un parent doit d’abord ouvrir Notre Maison pour initialiser le foyer.",
@@ -25,7 +28,7 @@
     SOURCE_CHANGED:
       "La liste a changé depuis l’aperçu. Recharge le plan de reprise.",
     MIGRATED_LIST_READONLY:
-      "Cette liste utilise maintenant le moteur synchronisé. Retrouve-la dans Missions synchronisées.",
+      "Cette liste utilise maintenant le moteur synchronisé. Retrouve-la dans Aujourd’hui ou Gérer.",
     VERSION_CONFLICT:
       "Une autre session a changé cette mission. Actualise puis réessaie.",
     SCOPE_DENIED: "Ton accès ne permet pas cette action.",
@@ -60,8 +63,10 @@
     lastRevision = -1,
     offset = 0,
     preview = false,
-    selectedPerson = "all",
+    selectedPerson = "",
+    managing = false,
     selectedGroup = "all",
+    upgradeState = "idle",
     lastRefresh = 0,
     lastPoll = 0;
   let pairedToken = localStorage.getItem(deviceKey) || null;
@@ -72,7 +77,7 @@
     sounds = new Set();
   let audio = null;
   const nav = document.querySelector(".missions-tabs"),
-    tab = btn("Missions synchronisées", () => toggle(true), "dynamic-tab");
+    tab = btn("Aujourd’hui", () => { managing = false; toggle(true); }, "dynamic-tab");
   tab.id = "showDynamic";
   nav.prepend(tab);
   const root = el("section", "dynamic-area");
@@ -174,10 +179,11 @@
       );
       return;
     }
-    if (pending) return;
+    if (pending) throw Error("Un enregistrement est déjà en cours. Réessaie dans un instant.");
     if (!navigator.onLine)
       throw Error("Hors connexion : aucune validation envoyée.");
     pending = true;
+    connection.textContent = "Envoi…";
     const key = action + JSON.stringify(data);
     const requestId = requests.get(key) || newId();
     requests.set(key, requestId);
@@ -191,6 +197,7 @@
       throw e;
     } finally {
       pending = false;
+      draw();
     }
   }
   async function refresh(force = false) {
@@ -202,15 +209,29 @@
     refreshing = true;
     const current = epoch;
     try {
-      const next = await call("snapshot");
+      let next = await call("snapshot");
+      if (current !== epoch) return;
+      if (next.apiVersion >= 12 && ctx?.session?.user?.id && !next.deviceId && upgradeState === "idle") {
+        upgradeState = "working";
+        try {
+          if (ctx.synchronize) await ctx.synchronize();
+          const upgrade = await call("bootstrap");
+          if (current !== epoch) return;
+          upgradeState = upgrade.needsPerson ? "needs-person" : "done";
+          if (!upgrade.needsPerson) { await prepare(ctx.call,ctx.session,ctx.profile);next=await call("snapshot"); }
+        } catch(e) { upgradeState = "error";connection.textContent=problem(e); }
+      }
       if (current !== epoch) return;
       snapshot = next;
+      if (!selectedPerson) selectedPerson = MissionsDailyCore.initialPerson(next, ctx?.session?.user?.id,
+        localStorage.getItem("mm-dashboard-person:" + (ctx?.session?.user?.id || "device")) || "");
       offset = Date.parse(next.serverNow) - Date.now();
       lastRefresh = Date.now();
       const changed = next.revision !== lastRevision;
       lastRevision = next.revision;
+      connection.dataset.state = "ready";
       connection.textContent =
-        "Synchronisé avec Notre Maison · " +
+        "À jour · " +
         new Date().toLocaleTimeString("fr-FR", {
           hour: "2-digit",
           minute: "2-digit",
@@ -229,7 +250,9 @@
         lastRevision = -1;
         draw();
       }
+      connection.dataset.state = "error";
       connection.textContent = problem(e);
+      draw();
     } finally {
       refreshing = false;
       if (refreshAgain) {
@@ -258,6 +281,7 @@
     draw();
   }
   function toggle(value) {
+    if(value)globalThis.MissionsShared?.toggle?.(false);
     shown = value;
     document.body.classList.toggle("dynamic-view", value);
     root.hidden = !value;
@@ -265,8 +289,8 @@
     $("filters").hidden = value;
     $("lists").hidden = value;
     $("sharedArea").hidden = true;
-    tab.setAttribute("aria-pressed", String(value));
-    $("showPersonal").setAttribute("aria-pressed", String(!value));
+    tab.setAttribute("aria-pressed", String(value && !managing));
+    $("showPersonal").setAttribute("aria-pressed", String(value && managing));
     $("showShared").setAttribute("aria-pressed", "false");
     if (value) {
       draw();
@@ -290,6 +314,7 @@
   function canManage() {
     return (
       snapshot &&
+      upgradeState !== "needs-person" &&
       !snapshot.deviceId &&
       (snapshot.admin || snapshot.personScope === "annabelle")
     );
@@ -305,6 +330,34 @@
       group: u.group || "Maison",
       note: u.note || "",
     };
+  }
+  function drawLegacy() {
+    if (managing || pairedToken || preview) return;
+    const groups = MissionsDailyCore.legacyGroups(state.lists || [], now(), isMigrated);
+    if (!groups.length) return;
+    const section = el("section", "daily-legacy");
+    section.append(el("h2", null, "Mes listes personnelles"),
+      el("p", "small", "Ces listes ne sont pas encore reprises dans Notre Maison. Leur suivi reste celui de l’ancien moteur ; retrouve la reprise dans Mon atelier → Administration."));
+    for (const {list, tasks} of groups) {
+      const card = el("section", "card theme-scope daily-legacy-card");
+      styleCard(card, list);
+      card.append(el("h3", null, (list.icon || "🌿") + " " + list.title),
+        el("p", "small", tasks.length + " à faire · récurrence de la liste"));
+      for (const task of tasks) {
+        const label = el("label", "task"), check = el("input");
+        check.type = "checkbox";
+        check.setAttribute("aria-label", "Valider " + task.text);
+        check.onchange = () => {
+          if (isMigrated(list.id)) { render(); return; }
+          task.done = check.checked; save(); render();
+        };
+        const text = el("span", "text", task.text);
+        if (task.time) text.prepend(el("span", "time", task.time.replace(":", " h ") + " · "));
+        label.append(check, text); card.append(label);
+      }
+      section.append(card);
+    }
+    root.append(section);
   }
   function welcome() {
     const box = el("section", "empty dynamic-welcome");
@@ -338,10 +391,18 @@
   function draw() {
     if (!shown) return;
     root.replaceChildren();
+    root.classList.toggle("daily-dashboard", !managing);
     if (!snapshot) {
       welcome();
       return;
     }
+    if ((snapshot.apiVersion || 0) < 12) root.append(el("p","note","Installation à terminer : appliquer le complément Supabase V12 avant d’utiliser les nouvelles missions."));
+    if (upgradeState === "needs-person") {
+      const setup=el("section","empty");setup.append(el("h2",null,"À qui correspondent tes listes ?"),el("p",null,"Ce choix associe ton compte à ton espace. Tes anciennes listes seront récupérées automatiquement une seule fois."));
+      for(const p of snapshot.config.people.filter(p=>!p.userId||p.userId===ctx?.session?.user?.id))setup.append(btn(p.name,async()=>{try{await call("bootstrap",{person:p.id});upgradeState="done";selectedPerson=p.id;await prepare(ctx.call,ctx.session,ctx.profile);await refresh(true);}catch(e){toast(problem(e));}},"primary"));
+      root.append(setup);
+    }
+    if(upgradeState === "error")root.append(btn("Réessayer la récupération des listes",()=>{upgradeState="idle";refresh(true);}));
     const people = snapshot.config.people,
       top = el("div", "dynamic-toolbar");
     const title = el("div");
@@ -352,7 +413,7 @@
         "small",
         preview
           ? "Exemple fictif · aucune écriture dans la famille"
-          : "Même moteur et mêmes validations que Notre Maison",
+          : "Tes missions du moment, une chose à la fois.",
       ),
     );
     top.append(title);
@@ -367,20 +428,24 @@
       controls,
       "Pour qui ?",
       [
-        ["all", "Toutes les personnes autorisées"],
-        ...people.map((p) => [p.id, p.name]),
+        ["", "Choisir ma liste"],
+        ...(snapshot.admin ? [["all", "Vue familiale"]] : []),
+        ...people.filter(p => !snapshot.personScope || p.id === snapshot.personScope).map((p) => [p.id, p.name]),
       ],
       selectedPerson,
     );
+    person.parentElement.hidden = !managing && selectedPerson !== "";
     person.onchange = () => {
       selectedPerson = person.value;
+      localStorage.setItem("mm-dashboard-person:" + (ctx?.session?.user?.id || "device"), selectedPerson);
       selectedGroup = "all";
       draw();
     };
     controls.append(
-      btn("Actualiser", () => refresh(true)),
+      ...(connection.dataset.state === "error" ? [btn("Réessayer", () => refresh(true))] : []),
       btn("Mes statistiques", stats),
-      btn(audio ? "Tester le son" : "Activer le son", enableSound),
+      ...(managing ? [btn(audio ? "Tester le son" : "Activer le son", enableSound)] : []),
+
     );
     if (snapshot.deviceId)
       controls.append(
@@ -390,14 +455,10 @@
       );
     if (canManage())
       controls.append(
-        btn("+ Nouvelle mission", () => editTask(null), "primary"),
+        btn("+ Ajouter", () => editTask(null), "primary"),
       );
-    if (snapshot.admin)
-      controls.append(
-        btn("Reprendre mes listes V10", migration),
-        btn("Accès des appareils", access),
-      );
-    if (!snapshot.deviceId)
+    if (managing && snapshot.admin) controls.append(btn("Accès de la tablette",access));
+    if (managing && !snapshot.deviceId)
       controls.append(
         btn("Sauvegarder", async () => {
           try {
@@ -411,6 +472,11 @@
         }),
       );
     root.append(controls);
+    if(managing && snapshot.upgradeReport?.length){
+      const report=el("details");report.append(el("summary",null,"Mes listes ont été récupérées — voir le bilan"));
+      for(const row of snapshot.upgradeReport)report.append(el("p","small",row.list+" · "+({imported:"mission avec étapes",unscheduled:"conservée sans date",preserved:"calendrier existant conservé"}[row.status]||row.status)));
+      root.append(report);
+    }
     const daily = el("div", "dynamic-daily");
     for (const who of people.filter(
       (p) => selectedPerson === "all" || p.id === selectedPerson,
@@ -421,20 +487,25 @@
           o.status === "done" &&
           C.day(o.completed) === C.day(new Date(now())),
       ).length;
-      daily.append(
-        el(
-          "span",
-          null,
-          who.name +
-            " · " +
-            done +
-            " petite" +
-            (done > 1 ? "s" : "") +
-            " victoire" +
-            (done > 1 ? "s" : "") +
-            " aujourd’hui",
-        ),
-      );
+      const cohort = snapshot.occurrences.filter(o => o.person === who.id && C.day(o.original_due) === C.day(new Date(now())) && o.status !== "cancelled" && !o.spec.paused);
+      const count = C.counts(cohort, now());
+      const summary = el("div", "daily-person-summary");
+      const avatar = el("span", "daily-avatar");
+      avatar.setAttribute("role", "img");avatar.setAttribute("aria-label", "Avatar de " + who.name);
+      if (who.image && /^data:image\//.test(who.image)) {
+        avatar.style.backgroundImage = `url("${who.image}")`;
+        avatar.style.backgroundSize = "cover";
+      } else {
+        avatar.style.backgroundImage = "url(art/avatar-presets.png)";
+        avatar.style.backgroundSize = "300% 200%";
+        avatar.style.backgroundPosition = `${[0,50,100][(who.avatar||0)%3]}% ${(who.avatar||0)<3?0:100}%`;
+      }
+      const text = el("div");
+      text.append(el("strong", null, who.name), el("p", "small", count.completed + " / " + count.total + " missions du jour terminées"));
+      const encouragements = ["Un petit pas suffit pour commencer 🌱", "Chaque mission compte, tu avances ✨", "À ton rythme, une chose après l’autre 💪", "Capitaine des petites victoires 🚀"];
+      const index = [...(C.day(new Date(now()))+who.id)].reduce((n,c)=>n+c.charCodeAt(0),0)%encouragements.length;
+      text.append(el("p", "daily-message", count.total && count.completed===count.total ? "Tout est fait aujourd’hui, bravo ! 🎉" : encouragements[index]));
+      summary.append(avatar,text);daily.append(summary);
     }
     root.append(daily);
     const rows = C.visible(snapshot.occurrences, now()).filter(
@@ -442,7 +513,8 @@
     );
     const groups = new Map();
     for (const o of rows) {
-      const key = C.groupKey(o);
+      const bucketKey = Date.parse(o.ends) <= now() ? "0" : Date.parse(o.due) <= now() ? "1" : "2";
+      const key = (managing ? "" : bucketKey + ":") + C.groupKey(o);
       if (!groups.has(key))
         groups.set(key, { person: o.person, look: appearance(o), rows: [] });
       groups.get(key).rows.push(o);
@@ -457,19 +529,23 @@
           null,
           snapshot.definitions.some((d) => !d.archived)
             ? "Tes prochaines missions apparaîtront au bon moment. Les retards ne sont jamais effacés."
-            : "Ajoute une mission ou reprends une liste V10 après vérification.",
+            : "Aucune mission synchronisée à afficher. Tes listes restent accessibles dans la gestion.",
         ),
       );
       root.append(box);
     }
     const cards = el("div", "dynamic-cards");
-    for (const group of groups.values()) {
+    const orderedGroups = [...groups.values()].sort((a,b) => {
+      const rank = g => Math.min(...g.rows.map(o => Date.parse(o.ends)<=now()?0:Date.parse(o.due)<=now()?1:2));
+      return rank(a)-rank(b);
+    });
+    for (const group of orderedGroups) {
       const card = el("section", "card theme-scope dynamic-card"),
         who = people.find((p) => p.id === group.person),
         look = group.look;
       styleCard(card, look);
       const art = makeArt(listTheme(look, state.settings));
-      if (art) card.append(art);
+      if (managing && art) card.append(art);
       const head = el("div", "cardhead"),
         titles = el("div");
       titles.append(
@@ -534,6 +610,9 @@
           );
         }
       }
+      const legacyGroup = /^(personal|shared):/.test(look.id) && group.rows.every(o=>!o.spec.steps?.length);
+      let taskHost=card;
+      if(legacyGroup){taskHost=el("details","legacy-checklist");taskHost.append(el("summary",null,group.rows.length+" éléments à faire · ouvrir le détail"));card.append(taskHost);}
       let last = "";
       for (const o of group.rows) {
         const bucket =
@@ -543,7 +622,7 @@
               ? "À faire maintenant"
               : "À venir";
         if (bucket !== last) {
-          card.append(
+          taskHost.append(
             el(
               "h3",
               "dynamic-bucket " + (bucket === "En retard" ? "late" : ""),
@@ -553,12 +632,14 @@
           last = bucket;
         }
         const row = el("div", "dynamic-task");
-        const button = btn("✓", () => act("complete", o), "dynamic-check");
-        button.setAttribute("aria-label", "Valider " + o.title);
+        const hasSteps=!!o.spec.steps?.length;
+        const button = btn(hasSteps ? "Ouvrir" : "✓", () => hasSteps ? checklist(o) : act("complete", o), "dynamic-check");
+        button.setAttribute("aria-label", (hasSteps ? "Ouvrir les étapes de " : "Valider ") + o.title);
         button.disabled = pending || !navigator.onLine;
         const text = el("div", "dynamic-task-copy");
         text.append(
           el("strong", null, o.title),
+          ...(hasSteps ? [el("span","small",o.spec.steps.filter(s=>o.spec.stepDone?.[s.id]).length+" / "+o.spec.steps.length+" étapes")] : []),
           el(
             "span",
             "small",
@@ -577,16 +658,16 @@
         const more = btn("•••", () => occurrence(o), "dynamic-more");
         more.setAttribute("aria-label", "Actions pour " + o.title);
         row.append(button, text, more);
-        card.append(row);
+        taskHost.append(row);
       }
-      if (look.note) card.append(el("p", "note", look.note));
+      if (managing && look.note) card.append(el("p", "note", look.note));
       cards.append(card);
     }
-    root.append(cards);
-    if (canManage()) {
+    if(!managing)root.append(cards);
+    if (managing && canManage()) {
       const area = el("details", "dynamic-routines"),
-        summary = el("summary", null, "Mes routines et leur calendrier");
-      area.append(summary);
+        summary = el("summary", null, "Mes missions, y compris sans date");
+      area.append(summary);area.open=true;
       for (const d of snapshot.definitions.filter(
         (d) =>
           !d.archived &&
@@ -605,16 +686,11 @@
                   unitLabel(d.spec.unit)
               : d.spec.mode === "once"
                 ? "Une seule fois"
-                : `Toutes les ${d.spec.every} ${unitLabel(d.spec.unit)}`,
+                : d.spec.mode === "none" ? "Sans date · conservée dans Gérer" : `Toutes les ${d.spec.every} ${unitLabel(d.spec.unit)}`,
           ),
           btn("Modifier", () => editTask(d)),
-          btn(d.spec.paused ? "Reprendre" : "Pause", () =>
-            mutate("edit", {
-              id: d.id,
-              version: d.version,
-              spec: { paused: !d.spec.paused },
-            }).catch(() => {}),
-          ),
+          ...(d.spec.mode !== "none" ? [btn(d.spec.paused ? "Reprendre" : "Pause", () =>
+            mutate("edit", {id:d.id,version:d.version,spec:{paused:!d.spec.paused}}).catch(()=>{}))] : []),
           btn("Archiver", () => {
             if (
               confirm(
@@ -633,7 +709,7 @@
     const note = el(
       "p",
       "foot",
-      "V11 · les anciennes listes V10 restent consultables dans leur onglet. Une liste reprise s’y affiche en lecture seule.",
+      "Une chose à la fois. Les missions sans date et leur détail restent dans Gérer.",
     );
     root.append(note);
   }
@@ -799,209 +875,54 @@
     );
   }
   function editTask(def) {
-    const collectionId = def?.spec?.ui?.listId || "custom:" + newId();
-    const d = dialog(
-        def ? "Modifier le calendrier futur" : "Une nouvelle petite mission",
-        true,
-      ),
-      f = el("form"),
-      current = def?.spec || {},
-      look = def ? appearance(def) : {};
-    const title = labelInput(f, "La mission", "text", def?.title || "", true);
-    title.maxLength = 500;
-    const person = select(
-      f,
-      "Pour qui ?",
-      snapshot.config.people.map((p) => [p.id, p.name]),
-      def?.person ||
-        (selectedPerson === "all"
-          ? snapshot.config.people[0].id
-          : selectedPerson),
-    );
-    const collection = labelInput(
-        f,
-        "Nom de la fiche",
-        "text",
-        look.title || "Mes missions",
-        true,
-      ),
-      icon = labelInput(f, "Symbole", "text", look.icon || "🌿");
-    icon.maxLength = 8;
-    const theme = select(
-      f,
-      "Thème de cette fiche",
-      [
-        ["inherit", "Suivre mon thème"],
-        ["original", "Style initial"],
-        ...MissionThemes.map((t) => [t.id, t.name]),
-      ],
-      look.visualTheme || "inherit",
-    );
-    const grid = el("div", "dynamic-form-grid");
-    f.append(grid);
-    const mode = select(
-      grid,
-      "Récurrence",
-      [
-        ["relative", "Après ma dernière validation"],
-        ["fixed", "À dates fixes"],
-        ["once", "Une seule fois"],
-      ],
-      current.mode || "relative",
-    );
-    const every = labelInput(
-      grid,
-      "Tous les",
-      "number",
-      current.every || 7,
-      true,
-    );
-    every.min = "1";
-    every.max = "365";
-    const unit = select(
-      grid,
-      "Unité",
-      [
-        ["minutes", "Minutes"],
-        ["hours", "Heures"],
-        ["days", "Jours civils"],
-        ["weeks", "Semaines"],
-      ],
-      current.unit || "days",
-    );
-    const first = labelInput(
-      grid,
-      def
-        ? "Nouvelle première échéance future · Paris"
-        : "Première échéance · Paris",
-      "datetime-local",
-      C.day(new Date(now() + (def ? 86400000 : 0))) + "T18:00",
-      true,
-    );
-    const period = select(
-      grid,
-      "Fenêtre de réalisation",
-      [
-        ["", "Heure / journée"],
-        ["morning", "Matin · 06–12"],
-        ["afternoon", "Après-midi · 12–18"],
-        ["evening", "Soir · 18–22"],
-      ],
-      current.period || "",
-    );
-    const start = labelInput(
-        grid,
-        "Début de période personnalisé",
-        "time",
-        current.periodStart || "",
-      ),
-      end = labelInput(
-        grid,
-        "Fin de période personnalisée",
-        "time",
-        current.periodEnd || "",
-      );
-    const rem = check(
-        f,
-        "Activer un rappel pour cette mission",
-        !!current.reminder,
-      ),
-      time = labelInput(
-        f,
-        "Heure de rappel distincte (facultatif)",
-        "time",
-        current.reminderTime || "",
-      );
-    const delay = select(
-        f,
-        "Délai entre les relances",
-        [
-          [5, "5 minutes"],
-          [10, "10 minutes"],
-          [15, "15 minutes"],
-          [30, "30 minutes"],
-          [60, "1 heure"],
-        ],
-        current.reminderDelay || 15,
-      ),
-      repeat = select(
-        f,
-        "Nombre de relances",
-        [
-          [0, "Aucune"],
-          [1, "Une"],
-          [2, "Deux"],
-          [3, "Trois"],
-        ],
-        current.reminderCount ?? 2,
-      );
-    const days = el("fieldset"),
-      legend = el("legend", null, "Jours prévus · calendrier fixe");
-    days.append(legend);
-    const checks = ["Dim.", "Lun.", "Mar.", "Mer.", "Jeu.", "Ven.", "Sam."].map(
-      (name, i) => check(days, name, !current.days || current.days.includes(i)),
-    );
-    f.append(days);
-    if (def)
-      f.append(
-        el(
-          "p",
-          "small",
-          "Le calendrier futur sera remplacé. Les réalisations et les retards déjà échus restent conservés. Pour une récurrence relative déjà due, traite d’abord son occurrence.",
-        ),
-      );
-    const status = el("p", "small");
-    status.setAttribute("role", "status");
-    const submit = el(
-      "button",
-      "primary",
-      def ? "Enregistrer le nouveau calendrier" : "Ajouter ma mission",
-    );
-    submit.type = "submit";
-    f.append(status, submit);
-    f.onsubmit = async (e) => {
-      e.preventDefault();
-      submit.disabled = true;
-      try {
-        const data = C.validateTask({
-          person: person.value,
-          title: title.value.trim(),
-          spec: {
-            mode: mode.value,
-            every: Number(every.value),
-            unit: unit.value,
-            firstDue: first.value,
-            period: period.value,
-            periodStart: start.value,
-            periodEnd: end.value,
-            days: checks.flatMap((c, i) => (c.checked ? [i] : [])),
-            reminder: rem.checked,
-            reminderTime: time.value,
-            reminderDelay: Number(delay.value),
-            reminderCount: Number(repeat.value),
-            ui: {
-              ...look,
-              listId: collectionId,
-              title: collection.value,
-              icon: icon.value,
-              visualTheme: theme.value,
-            },
-          },
-        });
-        const out = await mutate(def ? "edit" : "create", {
-          ...data,
-          ...(def
-            ? { id: def.id, version: def.version, replaceSchedule: true }
-            : {}),
-        });
-        if (out) d.close();
-      } catch (e) {
-        status.textContent = problem(e);
-      } finally {
-        submit.disabled = false;
-      }
-    };
+    const d=dialog(def?'Modifier la mission':'Ajouter une mission',true),f=el('form'),current=def?.spec||{},look=def?appearance(def):{};
+    if((snapshot.apiVersion||0)<12){d.append(el('p',null,'Le complément Supabase V12 doit être installé avant de créer des missions avec étapes.'));return;}
+    const title=labelInput(f,'Quoi ?','text',def?.title||'',true);title.maxLength=500;
+    const person=select(f,'Pour qui ?',snapshot.config.people.filter(p=>snapshot.admin||p.id===snapshot.personScope).map(p=>[p.id,p.name]),def?.person||selectedPerson);
+    const mode=select(f,'Quand ?',[['none','Sans date'],['once','Une fois'],['fixed','Certains jours'],['relative','Après chaque réalisation']],current.mode||'once');
+    const calendar=el('section','wizard-calendar');f.append(calendar);
+    const date=labelInput(calendar,'Date / à partir du','date',(current.firstDue||C.day()).slice(0,10),true);
+    const time=labelInput(calendar,'Heure, si nécessaire','time',current.dueType==='day'?'':(current.firstDue||'').slice(11,16));
+    const relative=el('div');calendar.append(relative);
+    const every=labelInput(relative,'Tous les','number',current.every||7,true);every.min='1';every.max='365';
+    const unit=select(relative,'Intervalle',[['days','jours'],['weeks','semaines'],['hours','heures'],['minutes','minutes']],current.unit||'days');
+    const dayBox=el('fieldset');dayBox.append(el('legend',null,'Quels jours ?'));calendar.append(dayBox);
+    const days=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'].map((t,i)=>check(dayBox,t,!current.days||current.days.includes(i)));
+    const reminders=el('section');f.append(reminders);
+    const rem=check(reminders,'Me rappeler cette mission',!!current.reminder),remTime=labelInput(reminders,'À quelle heure ?','time',current.reminderTime||'');
+    const detail=el('details','wizard-steps');detail.append(el('summary',null,'Ajouter des étapes (facultatif)'));const stepLabel=el('label',null,'Une étape par ligne. Une heure peut précéder le texte : 15:00 Préparer le sac.');const stepText=el('textarea');stepText.rows=5;stepText.value=(current.steps||[]).map(s=>(s.time?s.time+' ':'')+s.title).join('\n');stepLabel.append(stepText);detail.append(stepLabel);detail.open=!!current.steps?.length;f.append(detail);
+    const advanced=el('details');advanced.append(el('summary',null,'Plus d’options'));f.append(advanced);
+    const collection=labelInput(advanced,'Groupe de missions','text',look.title||'Maison',true),icon=labelInput(advanced,'Symbole','text',look.icon||'🌿');
+    const period=select(advanced,'Période',[['','Journée / heure choisie'],['morning','Matin'],['afternoon','Après-midi'],['evening','Soir']],current.period||'');
+    const periodStart=labelInput(advanced,'Début personnalisé','time',current.periodStart||''),periodEnd=labelInput(advanced,'Fin personnalisée','time',current.periodEnd||'');
+    const visualTheme=select(advanced,'Thème de cette mission',[['inherit','Suivre mon thème'],['original','Style initial'],...MissionThemes.map(t=>[t.id,t.name])],look.visualTheme||'inherit');
+    const delay=select(advanced,'Espacement des relances',[[5,'5 min'],[10,'10 min'],[15,'15 min'],[30,'30 min'],[60,'1 h']],current.reminderDelay||15);
+    const repeats=select(advanced,'Relances supplémentaires',[[0,'Aucune'],[1,'Une'],[2,'Deux'],[3,'Trois']],current.reminderCount??0);
+    const update=()=>{calendar.hidden=mode.value==='none';date.required=mode.value!=='none';relative.hidden=mode.value!=='relative';every.required=mode.value==='relative';dayBox.hidden=mode.value!=='fixed';reminders.hidden=mode.value==='none';remTime.parentElement.hidden=!rem.checked;periodStart.parentElement.hidden=!period.value;periodEnd.parentElement.hidden=!period.value;};mode.onchange=update;rem.onchange=update;period.onchange=update;update();
+    const status=el('p','small');status.setAttribute('role','status');const submit=el('button','primary',def?'Enregistrer':'Ajouter');submit.type='submit';f.append(status,submit);
+    f.onsubmit=async e=>{e.preventDefault();submit.disabled=true;try{
+      const existing=snapshot.definitions.find(x=>x.spec?.ui?.title===collection.value.trim()&&x.person===person.value);
+      const data=MissionWizard.build({title:title.value,person:person.value,mode:mode.value,date:date.value,time:time.value,every:mode.value==='relative'?Number(every.value):mode.value==='fixed'?Number(current.every||1):1,unit:mode.value==='relative'?unit.value:mode.value==='fixed'?(current.unit||'days'):'days',days:days.flatMap((x,i)=>x.checked?[i]:[]),reminder:rem.checked,reminderTime:remTime.value,reminderDelay:delay.value,reminderCount:repeats.value,steps:stepText.value,groupTitle:collection.value.trim(),groupId:existing?.spec.ui.listId||look.id||('group:'+collection.value.trim()),icon:icon.value,visualTheme:visualTheme.value,period:period.value,periodStart:periodStart.value,periodEnd:periodEnd.value},def);
+      if(data.spec.mode!=='none')C.validateTask(data);
+      await mutate(def?'edit':'create',{...data,...(def?{id:def.id,version:def.version,replaceSchedule:data.replaceSchedule}:{})});d.close();
+    }catch(e){status.textContent=problem(e);}finally{submit.disabled=false;}};
     d.append(f);
+  }
+  function checklist(o){
+    const d=dialog(o.title,true),host=el('div');let guided=false;
+    const drawSteps=()=>{
+      const current=snapshot.occurrences.find(x=>x.id===o.id)||o;
+      if(current.status!=='open'){d.close();toast('Mission terminée, bravo !');return;}
+      host.replaceChildren();const steps=current.spec.steps||[],done=current.spec.stepDone||{},n=steps.filter(s=>done[s.id]).length;
+      host.append(el('p','daily-message',n+' / '+steps.length+' étapes terminées'),btn(guided?'Voir toute la checklist':'Une étape à la fois',()=>{guided=!guided;drawSteps();}));
+      const next=steps.find(s=>!done[s.id]);
+      if(!next)host.append(btn("Confirmer la fin de la mission",async()=>{try{await mutate("complete",{id:current.id,version:current.version});d.close();}catch{}}));
+      for(const step of steps.filter(s=>!guided||s===next)){
+        const label=el('label','task'),input=el('input');input.type='checkbox';input.checked=!!done[step.id];input.disabled=pending||!navigator.onLine;
+        const text=el('span','text',(step.time?step.time.replace(':',' h ')+' · ':'')+step.title);label.append(input,text);host.append(label);
+        input.onchange=async()=>{input.disabled=true;try{await mutate('step',{id:current.id,version:current.version,stepId:step.id,done:input.checked});drawSteps();}catch(e){await refresh(true);drawSteps();}};
+      }
+    };d.append(host);drawSteps();
   }
   function stats() {
     const d = dialog("Mes petites victoires", true),
@@ -1226,231 +1147,6 @@
       d.append(row);
     }
   }
-  async function migration() {
-    if (preview) {
-      toast("La reprise de données est disponible après connexion.");
-      return;
-    }
-    const d = dialog("Reprendre une liste V10", true);
-    const status = el("p", "small", "Lecture des sources autorisées…");
-    status.setAttribute("role", "status");
-    d.append(
-      el(
-        "p",
-        null,
-        "Seule la liste choisie sera reprise. Ses anciennes coches et son historique restent conservés comme observations. Les nouvelles occurrences commencent à la date choisie ; aucun horaire de validation ancien n’est inventé.",
-      ),
-      status,
-    );
-    try {
-      if (ctx?.synchronize) await ctx.synchronize();
-      sources = await legacy("sources");
-      const form = el("form"),
-        choices = [
-          ...sources.personal.map((p) => [
-            "personal:" + p.owner,
-            p.self ? "Mes listes personnelles" : p.name + " · enfant rattaché",
-          ]),
-          ...sources.shared.map((p) => [
-            "shared:" + p.id,
-            "Liste partagée · " + p.name,
-          ]),
-        ];
-      if (!choices.length) {
-        status.textContent =
-          "Aucune source autorisée. Connecte ton compte Mes Missions existant.";
-        return;
-      }
-      const source = select(form, "Source", choices),
-        list = select(form, "Liste à reprendre", []),
-        person = select(
-          form,
-          "Afficher dans le foyer pour",
-          snapshot.config.people.map((p) => [p.id, p.name]),
-        ),
-        start = labelInput(
-          form,
-          "Début des nouvelles occurrences · Paris",
-          "date",
-          C.day(new Date(now() + 86400000)),
-          true,
-        );
-      start.min = C.day();
-      const next = el("button", "primary", "Préparer l’aperçu");
-      next.type = "submit";
-      form.append(next);
-      const report = el("div", "dynamic-migration-report");
-      d.append(form, report);
-      const loadLists = async () => {
-        report.replaceChildren();
-        list.replaceChildren();
-        next.disabled = true;
-        try {
-          const [kind, id] = source.value.split(":");
-          if (kind === "personal") {
-            const result = await legacy("lists", { owner: id });
-            for (const l of result.lists) {
-              const option = el(
-                "option",
-                null,
-                l.title +
-                  " · " +
-                  l.tasks +
-                  " tâches" +
-                  (l.migrated ? " · déjà reprise" : ""),
-              );
-              option.value = l.id;
-              option.disabled = !!l.migrated;
-              list.append(option);
-            }
-            list.value =
-              [...list.options].find((o) => !o.disabled)?.value || "";
-            const p = sources.personal.find((p) => p.owner === id);
-            person.value =
-              p?.profileKind === "child"
-                ? "annabelle"
-                : snapshot.config.people.find((p) => p.userId === id)?.id ||
-                  "maman";
-          } else {
-            const s = sources.shared.find((p) => p.id === id),
-              option = el("option", null, s.name);
-            option.value = id;
-            list.append(option);
-          }
-          status.textContent =
-            "Aucune donnée modifiée. Prépare l’aperçu pour vérifier les dates et la destination.";
-        } catch (e) {
-          status.textContent = problem(e);
-        } finally {
-          next.disabled = !list.value;
-        }
-      };
-      source.onchange = loadLists;
-      list.onchange = () => {
-        report.replaceChildren();
-        next.disabled = !list.value;
-      };
-      await loadLists();
-      form.onsubmit = async (e) => {
-        e.preventDefault();
-        next.disabled = true;
-        try {
-          const [kind, id] = source.value.split(":"),
-            selection = {
-              kind,
-              ...(kind === "personal" ? { owner: id } : {}),
-              listId: list.value,
-              person: person.value,
-              start: start.value,
-            },
-            plan = await legacy("plan", selection),
-            requestId = newId();
-          report.replaceChildren(
-            el("h3", null, "Vérification avant reprise"),
-            el(
-              "p",
-              null,
-              plan.title +
-                " → " +
-                snapshot.config.people.find((p) => p.id === plan.person)?.name,
-            ),
-            el(
-              "p",
-              null,
-              plan.taskCount +
-                " tâches · " +
-                plan.checkedObservations +
-                " coches anciennes archivées",
-            ),
-            el("p", "warning", plan.warning),
-          );
-          const details = el("details");
-          details.append(
-            el("summary", null, "Vérifier les premières échéances"),
-          );
-          for (const t of plan.tasks)
-            details.append(
-              el(
-                "p",
-                "small",
-                t.title +
-                  " · " +
-                  C.local(t.firstDue) +
-                  " · " +
-                  (t.spec.mode === "once"
-                    ? "une seule fois"
-                    : t.spec.every + " " + unitLabel(t.spec.unit)),
-              ),
-            );
-          report.append(details);
-          const backup = btn("Télécharger la sauvegarde de cette liste", () =>
-            saveFile(
-              plan.snapshot,
-              "mes-missions-avant-reprise-" + C.day() + ".json",
-            ),
-          );
-          report.append(backup);
-          const ack = check(
-              report,
-              "J’ai conservé la sauvegarde et je choisis de rendre cette liste visible dans le foyer.",
-            ),
-            apply = btn(
-              "Confirmer la reprise de cette liste",
-              async () => {
-                if (!ack.checked) {
-                  toast(
-                    "Conserve la sauvegarde puis confirme la visibilité dans le foyer.",
-                  );
-                  return;
-                }
-                apply.disabled = true;
-                try {
-                  const out = await legacy("apply", {
-                    ...selection,
-                    hash: plan.hash,
-                    confirmFamilyVisibility: true,
-                    requestId,
-                  });
-                  await prepare(ctx?.call, ctx?.session, ctx?.profile);
-                  await refresh(true);
-                  report.replaceChildren(
-                    el(
-                      "h3",
-                      null,
-                      out.alreadyMigrated
-                        ? "Cette liste a déjà été reprise"
-                        : "Reprise terminée",
-                    ),
-                    el(
-                      "p",
-                      null,
-                      "Les originaux sont conservés. Les rappels V10 de cette liste sont maintenant bloqués ; les nouveaux rappels restent désactivés jusqu’à ton choix.",
-                    ),
-                  );
-                  toast(
-                    "Liste reprise sans doublon. Les nouveaux rappels restent désactivés.",
-                  );
-                  if (ctx?.reload) await ctx.reload();
-                } catch (e) {
-                  status.textContent = problem(e);
-                  apply.disabled = false;
-                }
-              },
-              "primary",
-            );
-          report.append(apply);
-          status.textContent =
-            "Aucun changement tant que tu ne confirmes pas la reprise.";
-        } catch (e) {
-          status.textContent = problem(e);
-        } finally {
-          next.disabled = false;
-        }
-      };
-    } catch (e) {
-      status.textContent = problem(e);
-    }
-  }
   async function prepare(rpc, session, profile) {
     if (!session?.user?.id) {
       protectedLists.clear();
@@ -1478,6 +1174,9 @@
     ctx = identity && next.profile ? next : null;
     if (identity !== old) {
       clear();
+      selectedPerson = "";
+      upgradeState = "idle";
+      managing = false;
       if (ctx) {
         preview = false;
         prepare(ctx.call, ctx.session, ctx.profile).then(() => {
@@ -1488,6 +1187,7 @@
     }
   }
   function repaint() {
+    if (shown) draw();
     if (shown && snapshot && Date.now() - lastRefresh > 60000) refresh();
   }
   function example() {
@@ -1695,8 +1395,10 @@
     )
       refresh();
   }, 15000);
-  $("showPersonal").textContent = "Mes listes V10";
-  document.querySelector(".version").textContent =
-    "Version 11.1 · reliée à Notre Maison";
+  for (const [id,label,handler] of [["showPersonal","Gérer",()=>{managing=true;toggle(true);}], ["showShared","Réglages",()=>$("parents").click()]]) {
+    const original=$(id), button=original.cloneNode(false);button.textContent=label;original.replaceWith(button);button.onclick=handler;
+  }
+  $("settings").textContent="Apparence";
+  document.querySelector(".version").textContent="Version 12.0 · missions et étapes";
   toggle(true);
 })();
