@@ -1,3 +1,11 @@
+# V12.1 / V1.4.1 — corrections Mes missions
+
+- Aujourd’hui : nouvelle section « 🔔 Mes missions » en haut de l’écran. Toute mission avec « Me rappeler cette mission » y apparaît dès le début de sa journée (et les retards), sans attendre la fenêtre H−2 / J−5. Ses étapes se cochent directement depuis la section ; avant l’ouverture serveur de l’occurrence, les coches restent grisées avec l’heure d’ouverture.
+- Gérer : la section « Mes missions, y compris sans date » passe en haut de l’écran, missions avec rappel en premier, heure de rappel visible et étapes dépliables.
+- Rappel = heure de la mission : le champ séparé « À quelle heure ? » est supprimé (téléphone et tablette). Cocher le rappel rend l’heure obligatoire. Pour une ancienne mission « journée entière » avec heure de rappel, cette heure préremplit l’heure de la mission à la prochaine modification.
+- Affichage : une mission « journée entière » n’affiche plus 00:00 mais sa date et son heure de rappel, ou « dans la journée ».
+- Aucun changement SQL.
+
 # V12 / V1.4 — simplification et missions avec étapes
 
 ## Interface

@@ -306,3 +306,27 @@ body.dynamic-view .hero h1 { font-size: clamp(1.5rem,5vw,2.1rem); }
 header .header-actions #parents,header .header-actions #settings{display:none}.dynamic-area[hidden]{display:none}
 
 [hidden]{display:none!important}body.dynamic-view .hero{display:none}.missions-tabs{position:sticky;top:0;z-index:3;background:var(--paper,#fffaf3);padding:8px;border-radius:16px}.missions-tabs button{flex:1}.legacy-checklist summary{font-weight:600}
+.dynamic-reminders {
+  margin-bottom: 24px;
+}
+.dynamic-task-wrap {
+  border-bottom: 1px solid #abc3b544;
+}
+.dynamic-task-wrap > .dynamic-task {
+  border-bottom: 0;
+}
+.dynamic-steps {
+  flex-basis: 100%;
+  padding: 0 0 12px 58px;
+}
+.dynamic-definition .dynamic-steps {
+  padding-left: 0;
+}
+.dynamic-steps summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 4px 0;
+}
+.dynamic-steps .small {
+  margin: 4px 0;
+}

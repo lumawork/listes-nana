@@ -2,7 +2,9 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),W=require
 test('Simple form distinguishes unscheduled, dated and relative missions',()=>{
  const base={title:'Ma chambre',person:'annabelle',steps:'Faire le lit\n15:00 Ranger le bureau'};
  const draft=W.build({...base,mode:'none'});assert.equal(draft.spec.reminder,false);assert.equal(draft.spec.firstDue,undefined);assert.equal(draft.spec.steps.length,2);assert.equal(draft.spec.steps[1].time,'15:00');
- const once=W.build({...base,mode:'once',date:'2026-11-01',reminder:true});assert.equal(once.spec.dueType,'day');
+ const once=W.build({...base,mode:'once',date:'2026-11-01'});assert.equal(once.spec.dueType,'day');
+ assert.throws(()=>W.build({...base,mode:'once',date:'2026-11-01',reminder:true}),/heure/);
+ const timed=W.build({...base,mode:'once',date:'2026-11-01',time:'18:30',reminder:true,reminderTime:'08:00'});assert.equal(timed.spec.firstDue,'2026-11-01T18:30');assert.equal(timed.spec.dueType,'time');assert.equal(timed.spec.reminderTime,'');
  const relative=W.build({...base,mode:'relative',date:'2026-11-01',every:7});assert.equal(relative.spec.every,7);
  assert.throws(()=>W.build({...base,mode:'fixed',date:'2026-11-01',days:[]}));assert.throws(()=>W.steps('99:99 Faux horaire'));
 });
@@ -14,3 +16,13 @@ test('Editing retains step IDs and distinguishes detail updates from schedule ch
 });
 
 test('Retrying a new form keeps identical step IDs for idempotent creation',()=>{const values={title:'Chambre',person:'annabelle',mode:'none',steps:'Lit\nBureau'};assert.deepEqual(W.build(values),W.build(values));});
+
+test('The task time doubles as the reminder time, including for imported whole-day lists',()=>{
+ assert.equal(W.initialTime({dueType:'time',firstDue:'2026-11-01T18:30'}),'18:30');
+ assert.equal(W.initialTime({dueType:'day',firstDue:'2026-11-01T00:00',reminder:true,reminderTime:'08:00'}),'08:00');
+ assert.equal(W.initialTime({dueType:'day',firstDue:'2026-11-01T00:00'}),'');
+ const C=require('../dynamic-core');const due='2026-10-31T23:00:00.000Z';
+ assert.equal(C.dueLabel({due,original_due:due,spec:{dueType:'day',reminderTime:'08:00'}}),'1 nov. · 08:00');
+ assert.equal(C.dueLabel({due,original_due:due,spec:{dueType:'day'}}),'1 nov. · dans la journée');
+ assert(!C.dueLabel({due,original_due:due,spec:{dueType:'day'}}).includes('00:00'));
+});

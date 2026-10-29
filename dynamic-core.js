@@ -18,6 +18,17 @@
       minute: "2-digit",
     }).format(new Date(value));
   }
+  // A whole-day mission has a 00:00 due date: show its date and, if any, its reminder time instead.
+  function dueLabel(o) {
+    const s = o.spec || {};
+    if (s.dueType !== "day" || o.due !== o.original_due) return local(o.due);
+    const date = new Intl.DateTimeFormat("fr-FR", {
+      timeZone: "Europe/Paris",
+      day: "numeric",
+      month: "short",
+    }).format(new Date(o.due));
+    return date + " · " + (s.reminderTime ? s.reminderTime : "dans la journée");
+  }
   function paris(value) {
     if (/(?:Z|[+-]\d\d:\d\d)$/.test(value)) return new Date(value);
     const match = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)$/.exec(value);
@@ -158,6 +169,7 @@
   const API = {
     day,
     local,
+    dueLabel,
     paris,
     counts,
     visible,
