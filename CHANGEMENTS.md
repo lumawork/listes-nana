@@ -1,3 +1,10 @@
+# V12.2 / V1.4.2 — valider une mission sans cocher chaque étape
+
+- La coche d’une mission (téléphone et tablette) coche d’un coup toutes ses étapes restantes, ce qui termine la mission. Remplace la règle V12 « pas de bouton qui valide toutes les étapes », à la demande de Laurie (30/10/2026).
+- Toucher le texte de la mission ouvre ses étapes.
+- Dans la fenêtre des étapes : « Tout cocher et terminer » et, pour les comptes autorisés, Reporter / Je passe mon tour / Annuler l’occurrence, sans avoir terminé les étapes.
+- Aucun changement SQL : chaque étape restante est validée par le moteur existant, la dernière termine la mission.
+
 # V12.1 / V1.4.1 — corrections Mes missions
 
 - Aujourd’hui : nouvelle section « 🔔 Mes missions » en haut de l’écran. Toute mission avec « Me rappeler cette mission » y apparaît dès le début de sa journée (et les retards), sans attendre la fenêtre H−2 / J−5. Ses étapes se cochent directement depuis la section ; avant l’ouverture serveur de l’occurrence, les coches restent grisées avec l’heure d’ouverture.

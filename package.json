@@ -1,6 +1,6 @@
 {
   "name": "mes-missions",
-  "version": "12.1.0",
+  "version": "12.2.0",
   "private": true,
   "scripts": {
     "test": "node tests/database.cjs && node tests/dynamic-core.cjs && node tests/migration.cjs && node tests/legacy-client.cjs && node tests/steps.cjs && node --test tests/*.test.cjs",

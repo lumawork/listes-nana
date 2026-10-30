@@ -675,10 +675,15 @@
   function taskRow(o, inlineSteps = false) {
     const row = el("div", "dynamic-task");
     const hasSteps=!!o.spec.steps?.length;
-    const button = btn(hasSteps ? "Ouvrir" : "✓", () => hasSteps ? checklist(o) : act("complete", o), "dynamic-check");
-    button.setAttribute("aria-label", (hasSteps ? "Ouvrir les étapes de " : "Valider ") + o.title);
+    const button = btn("✓", () => completeAll(o), "dynamic-check");
+    button.setAttribute("aria-label", "Valider " + o.title + (hasSteps ? " et toutes ses étapes" : ""));
     button.disabled = pending || !navigator.onLine;
-    const text = el("div", "dynamic-task-copy");
+    const text = el(hasSteps ? "button" : "div", "dynamic-task-copy");
+    if (hasSteps) {
+      text.type = "button";
+      text.onclick = () => checklist(o);
+      text.setAttribute("aria-label", "Ouvrir les étapes de " + o.title);
+    }
     text.append(
       el("strong", null, o.title),
       ...(hasSteps ? [el("span","small",o.spec.steps.filter(s=>o.spec.stepDone?.[s.id]).length+" / "+o.spec.steps.length+" étapes")] : []),
@@ -877,11 +882,34 @@
       }
     } catch {}
   }
+  // The task check completes every remaining step, then the mission (the last step completes it server-side).
+  async function completeAll(o) {
+    const left = (o.spec.steps || []).filter((step) => !o.spec.stepDone?.[step.id]);
+    if (!left.length || preview) return act("complete", o);
+    if (pending) return toast("Un enregistrement est déjà en cours. Réessaie dans un instant.");
+    if (!navigator.onLine) return toast("Hors connexion : aucune validation envoyée.");
+    pending = true;
+    connection.textContent = "Envoi…";
+    try {
+      let version = o.version;
+      for (const step of left) {
+        await call("step", { id: o.id, version, stepId: step.id, done: true, requestId: newId() });
+        version++;
+      }
+      activeDialog?.close();
+      toast("Une petite victoire de plus ✨");
+    } catch (e) {
+      toast(problem(e));
+    } finally {
+      pending = false;
+      await refresh(true);
+    }
+  }
   function occurrence(o) {
     const d = dialog(o.title);
     d.append(
       el("p", "small", C.dueLabel(o)),
-      btn("✓ C’est fait", () => act("complete", o), "primary"),
+      btn("✓ C’est fait", () => completeAll(o), "primary"),
     );
     if (snapshot.admin) {
       d.append(
@@ -989,7 +1017,8 @@
       host.replaceChildren();const steps=current.spec.steps||[],done=current.spec.stepDone||{},n=steps.filter(s=>done[s.id]).length;
       host.append(el('p','daily-message',n+' / '+steps.length+' étapes terminées'),btn(guided?'Voir toute la checklist':'Une étape à la fois',()=>{guided=!guided;drawSteps();}));
       const next=steps.find(s=>!done[s.id]);
-      if(!next)host.append(btn("Confirmer la fin de la mission",async()=>{try{await mutate("complete",{id:current.id,version:current.version});d.close();}catch{}}));
+      host.append(btn(next?"✓ Tout cocher et terminer":"Confirmer la fin de la mission",()=>completeAll(current),"primary"));
+      if(snapshot.admin)host.append(btn("Reporter, passer mon tour ou annuler",()=>occurrence(current)));
       for(const step of steps.filter(s=>!guided||s===next)){
         const label=el('label','task'),input=el('input');input.type='checkbox';input.checked=!!done[step.id];input.disabled=pending||!navigator.onLine;
         const text=el('span','text',(step.time?step.time.replace(':',' h ')+' · ':'')+step.title);label.append(input,text);host.append(label);
@@ -1472,6 +1501,6 @@
     const original=$(id), button=original.cloneNode(false);button.textContent=label;original.replaceWith(button);button.onclick=handler;
   }
   $("settings").textContent="Apparence";
-  document.querySelector(".version").textContent="Version 12.1 · missions et étapes";
+  document.querySelector(".version").textContent="Version 12.2 · missions et étapes";
   toggle(true);
 })();

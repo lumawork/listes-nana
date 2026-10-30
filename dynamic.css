@@ -330,3 +330,13 @@ header .header-actions #parents,header .header-actions #settings{display:none}.d
 .dynamic-steps .small {
   margin: 4px 0;
 }
+button.dynamic-task-copy {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  align-items: flex-start;
+}
