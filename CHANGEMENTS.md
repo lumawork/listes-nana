@@ -1,3 +1,9 @@
+# V12.3 / V1.4.3 — reporter, passer son tour, supprimer : ouvert à tous
+
+- Base (appliqué en production, `backend/004-report-ouvert-a-tous.sql`) : report, tour sauté et annulation d’une occurrence possibles pour tous, y compris la tablette associée et le compte enfant. La correction (réouverture) reste réservée aux adultes. Chaque action est tracée (auteur, appareil, avant/après, motif). Ancienne fonction sauvegardée dans `nm_private.function_backups`.
+- Téléphone et tablette : boutons « Reporter à demain » (même heure), « Reporter à une autre date », « Je passe mon tour » et « Annuler / supprimer l’occurrence » visibles sans déverrouillage parent, depuis le menu ••• et depuis les étapes.
+- Statistiques : nouvelle colonne « Annulées » ; les tours sautés et les reports restaient déjà comptés.
+
 # V12.2 / V1.4.2 — valider une mission sans cocher chaque étape
 
 - La coche d’une mission (téléphone et tablette) coche d’un coup toutes ses étapes restantes, ce qui termine la mission. Remplace la règle V12 « pas de bouton qui valide toutes les étapes », à la demande de Laurie (30/10/2026).

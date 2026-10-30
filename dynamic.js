@@ -905,21 +905,28 @@
       await refresh(true);
     }
   }
+  // Same Paris time as the current due date, on the day after today.
+  function tomorrow(o) {
+    const time = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(o.due));
+    return C.day(new Date(now() + 86400000)) + "T" + time;
+  }
   function occurrence(o) {
     const d = dialog(o.title);
     d.append(
       el("p", "small", C.dueLabel(o)),
       btn("✓ C’est fait", () => completeAll(o), "primary"),
     );
-    if (snapshot.admin) {
+    // V12.2 : report, tour sauté et annulation ouverts à tous ; le serveur les trace (auteur, appareil, motif).
+    {
       d.append(
-        btn("Reporter cette occurrence", () => {
+        btn("Reporter à demain", () => act("reschedule", o, { due: tomorrow(o), reason: "Reporté à demain" })),
+        btn("Reporter à une autre date", () => {
           const f = el("form"),
             time = labelInput(
               f,
               "Nouvelle échéance · heure de Paris",
               "datetime-local",
-              C.day(new Date(now() + 86400000)) + "T18:00",
+              tomorrow(o),
               true,
             ),
             reason = labelInput(f, "Pourquoi ? (facultatif)", "text");
@@ -1018,7 +1025,7 @@
       host.append(el('p','daily-message',n+' / '+steps.length+' étapes terminées'),btn(guided?'Voir toute la checklist':'Une étape à la fois',()=>{guided=!guided;drawSteps();}));
       const next=steps.find(s=>!done[s.id]);
       host.append(btn(next?"✓ Tout cocher et terminer":"Confirmer la fin de la mission",()=>completeAll(current),"primary"));
-      if(snapshot.admin)host.append(btn("Reporter, passer mon tour ou annuler",()=>occurrence(current)));
+      host.append(btn("Reporter, passer mon tour ou supprimer",()=>occurrence(current)));
       for(const step of steps.filter(s=>!guided||s===next)){
         const label=el('label','task'),input=el('input');input.type='checkbox';input.checked=!!done[step.id];input.disabled=pending||!navigator.onLine;
         const text=el('span','text',(step.time?step.time.replace(':',' h ')+' · ':'')+step.title);label.append(input,text);host.append(label);
@@ -1058,6 +1065,7 @@
         "À temps",
         "En retard",
         "Tours sautés",
+        "Annulées",
         "Non faites",
         "À venir",
         "Reports*",
@@ -1086,6 +1094,7 @@
           c.timely,
           c.late,
           c.skipped,
+          c.cancelled,
           c.missing,
           c.pending,
           c.reported,
@@ -1101,7 +1110,7 @@
         el(
           "p",
           "small",
-          "Les échéances originales servent de référence. Les annulations sont exclues. * Un report est un événement : il ne s’ajoute pas au total. Une période non terminée donne un résultat provisoire.",
+          "Les échéances originales servent de référence. Les annulations sont comptées à part, hors taux de réalisation. * Un report est un événement : il ne s’ajoute pas au total. Une période non terminée donne un résultat provisoire.",
         ),
       );
       const list = el("details"),
@@ -1501,6 +1510,6 @@
     const original=$(id), button=original.cloneNode(false);button.textContent=label;original.replaceWith(button);button.onclick=handler;
   }
   $("settings").textContent="Apparence";
-  document.querySelector(".version").textContent="Version 12.2 · missions et étapes";
+  document.querySelector(".version").textContent="Version 12.3 · missions et étapes";
   toggle(true);
 })();
